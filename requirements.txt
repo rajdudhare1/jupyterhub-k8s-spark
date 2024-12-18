@@ -1,0 +1,6 @@
+# Add your spark job dependecies here
+numpy==1.26.4
+pandas
+pyspark==3.5.0
+PyYAML==6.0.1
+kubernetes

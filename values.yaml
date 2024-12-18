@@ -1,0 +1,690 @@
+global:
+  security:
+    allowInsecureImages: true
+  imageRegistry: ""
+  defaultStorageClass: ""
+  storageClass: ""
+  compatibility:
+    openshift:
+      adaptSecurityContext: auto
+kubeVersion: ""
+nameOverride: ""
+fullnameOverride: ""
+clusterDomain: cluster.local
+commonLabels: {}
+commonAnnotations: {}
+extraDeploy: []
+diagnosticMode:
+  enabled: false
+  command:
+  - sleep
+  args:
+  - infinity
+hub:
+  image:
+    registry: docker.io
+    repository: bitnami/jupyterhub
+    tag: 4.1.6-debian-12-r5
+    digest: ""
+    pullPolicy: Always
+  baseUrl: /
+  adminUser: "<USER>"
+  password: "<PASSWORD>"
+  services: {}
+  configuration: |
+    Chart:
+      Name: {{ .Chart.Name }}
+      Version: {{ .Chart.Version }}
+    Release:
+      Name: {{ .Release.Name }}
+      Namespace: {{ .Release.Namespace }}
+      Service: {{ .Release.Service }}
+    hub:
+      config:
+        GenericOAuthenticator:
+          debug: true
+          client_id: my-client
+          client_secret: <client-secret>
+          oauth_callback_url: https://jupyterhub-instance.example.com/hub/oauth_callback
+          login_url: /hub/login
+          authorize_url: https://keycloak-instance.example.com/realms/dev-env/protocol/openid-connect/auth
+          token_url: https://keycloak-instance.example.com/realms/dev-env/protocol/openid-connect/token
+          userdata_url: https://keycloak-instance.example.com/realms/dev-env/protocol/openid-connect/userinfo
+          logout_redirect_url: https://keycloak-instance.example.com/realms/dev-env/protocol/openid-connect/logout?redirect_url=https://jupyterhub-instance.example.com/hub/login
+          login_service: keycloak
+          manage_groups: true
+          manage_roles: true
+          allowed_groups: 
+          - jupyterhub-users
+          admin_groups: 
+          - jupyterhub-admins
+          username_key: preferred_username
+          enable_auth_state: true
+          tls_verify: false
+          userdata_params:
+            state: state
+          scope: openid
+        JupyterHub:
+          authenticator_class: generic-oauth
+          log_level: 10
+      cookieSecret: 760d70cc8bb7a9e00dc18050875b8e9cdfc909ca0a5a87a6e78f6afefd3cea33
+      concurrentSpawnLimit: 64
+      consecutiveFailureLimit: 5
+      activeServerLimit:
+      db:
+        type: postgres
+        url: postgresql://{{ ternary .Values.postgresql.auth.username .Values.externalDatabase.user .Values.postgresql.enabled }}@{{ ternary (include "jupyterhub.postgresql.fullname" .) .Values.externalDatabase.host .Values.postgresql.enabled }}:{{ ternary "5432" .Values.externalDatabase.port .Values.postgresql.enabled }}/{{ ternary .Values.postgresql.auth.database .Values.externalDatabase.database .Values.postgresql.enabled }}
+      services: {{- include "common.tplvalues.render" ( dict "value" .Values.hub.services "context" $ ) | nindent 8 }}
+      allowNamedServers: false
+      namedServerLimitPerUser:
+      {{- if .Values.hub.metrics.serviceMonitor.enabled }}
+      authenticatePrometheus: {{ .Values.hub.metrics.authenticatePrometheus }}
+      {{- end }}
+      redirectToServer:
+      shutdownOnLogout:
+    singleuser:
+      podNameTemplate: {{ include "common.names.fullname" . }}-jupyter-{username}
+      {{- if .Values.singleuser.tolerations }}
+      extraTolerations: {{- include "common.tplvalues.render" ( dict "value" .Values.singleuser.tolerations "context" $) | nindent 4 }}
+      {{- end }}
+      {{- if .Values.singleuser.nodeSelector }}
+      nodeSelector: {{- include "common.tplvalues.render" ( dict "value" .Values.singleuser.nodeSelector "context" $) | nindent 4 }}
+      {{- end }}
+      networkTools:
+        image:
+          name: {{ include "jupyterhub.hubconfiguration.imageEntry" ( dict "imageRoot" .Values.auxiliaryImage "global" .Values.global) }}
+          tag: {{ .Values.auxiliaryImage.tag }}
+          digest: {{ .Values.auxiliaryImage.digest }}
+          pullPolicy: {{ .Values.auxiliaryImage.pullPolicy }}
+          pullSecrets: {{- include "jupyterhub.imagePullSecrets.list" . | nindent 8 }}
+      cloudMetadata:
+        blockWithIptables: false
+      events: true
+      extraAnnotations:
+        {{- if .Values.commonAnnotations }}
+        {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+        {{- end }}
+        {{- if .Values.singleuser.podAnnotations }}
+        {{- include "common.tplvalues.render" ( dict "value" .Values.singleuser.podAnnotations "context" $ ) | nindent 4 }}
+        {{- end }}
+      extraLabels:
+        hub.jupyter.org/network-access-hub: "true"
+        app.kubernetes.io/component: singleuser
+        {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
+        {{- if .Values.singleuser.podLabels }}
+        {{- include "common.tplvalues.render" ( dict "value" .Values.singleuser.podLabels "context" $ ) | nindent 4 }}
+        {{- end }}
+      {{- if .Values.singleuser.extraEnvVars }}
+      extraEnv: {{- include "common.tplvalues.render" ( dict "value" .Values.singleuser.extraEnvVars "context" $ ) | nindent 4 }}
+      {{- end }}
+      {{- if .Values.singleuser.lifecycleHooks }}
+      lifecycleHooks: {{- include "common.tplvalues.render" ( dict "value" .Values.singleuser.lifecycleHooks "context" $ ) | nindent 4 }}
+      {{- end }}
+      {{- if .Values.singleuser.initContainers }}
+      initContainers: {{- include "common.tplvalues.render" ( dict "value" .Values.singleuser.initContainers "context" $ ) | nindent 4 }}
+      {{- end }}
+      {{- if .Values.singleuser.sidecars }}
+      extraContainers: {{- include "common.tplvalues.render" ( dict "value" .Values.singleuser.sidecars "context" $ ) | nindent 4 }}
+      {{- end }}
+      {{- if not (or (eq .Values.global.compatibility.openshift.adaptSecurityContext "force") (and (eq .Values.global.compatibility.openshift.adaptSecurityContext "auto") (include "common.compatibility.isOpenshift" .))) }}
+      {{- if .Values.singleuser.containerSecurityContext.enabled }}
+      uid: {{ .Values.singleuser.containerSecurityContext.runAsUser }}
+      {{- end }}
+      {{- if .Values.singleuser.podSecurityContext.enabled }}
+      fsGid: {{ .Values.singleuser.podSecurityContext.fsGroup }}
+      {{- end }}
+      {{- end }}
+      {{- if .Values.singleuser.containerSecurityContext.enabled }}
+      containerSecurityContext: {{- include "common.compatibility.renderSecurityContext" (dict "secContext" .Values.singleuser.containerSecurityContext "context" $) | nindent 4 }}
+      {{- end }}
+      {{- if .Values.singleuser.podSecurityContext.enabled }}
+      podSecurityContext: {{- include "common.compatibility.renderSecurityContext" (dict "secContext" .Values.singleuser.podSecurityContext "context" $) | nindent 4 }}
+      {{- end }}
+      serviceAccountName: {{ template "jupyterhub.singleuserServiceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.singleuser.automountServiceAccountToken }}
+      storage:
+        {{- if .Values.singleuser.persistence.enabled }}
+        type: dynamic
+        {{- else }}
+        type: none
+        {{- end }}
+        extraLabels:
+          app.kubernetes.io/component: singleuser
+          {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 6 }}
+        extraVolumes:
+          - name: empty-dir
+            emptyDir: {}
+          {{- if .Values.singleuser.extraVolumes }}
+          {{- include "common.tplvalues.render" ( dict "value" .Values.singleuser.extraVolumes "context" $ ) | nindent 6 }}
+          {{- end }}
+        extraVolumeMounts:
+          - name: empty-dir
+            mountPath: /tmp
+            subPath: tmp-dir
+          {{- if .Values.singleuser.extraVolumeMounts }}
+          {{- include "common.tplvalues.render" ( dict "value" .Values.singleuser.extraVolumeMounts "context" $ ) | nindent 6 }}
+          {{- end }}
+        capacity: {{ .Values.singleuser.persistence.size }}
+        homeMountPath: {{ .Values.singleuser.notebookDir }}
+        dynamic:
+          {{ include "jupyterhub.storage.class" (dict "persistence" .Values.singleuser.persistence "global" .Values.global) }}
+          pvcNameTemplate: {{ include "common.names.fullname" . }}-claim-{username}{servername}
+          volumeNameTemplate: {{ include "common.names.fullname" . }}-volume-{username}{servername}
+          storageAccessModes: {{- include "common.tplvalues.render" ( dict "value" .Values.singleuser.persistence.accessModes "context" $ ) | nindent 8 }}
+      image:
+        name: {{ include "jupyterhub.hubconfiguration.imageEntry" ( dict "imageRoot" .Values.singleuser.image "global" .Values.global) }}
+        tag: {{ .Values.singleuser.image.tag }}
+        digest: {{ .Values.singleuser.image.digest }}
+        pullPolicy: {{ .Values.singleuser.image.pullPolicy }}
+        pullSecrets: {{- include "jupyterhub.imagePullSecrets.list" . | nindent 4 }}
+      startTimeout: 300
+      {{- include "jupyterhub.singleuser.resources" . | nindent 2 }}
+      {{- if .Values.singleuser.command }}
+      cmd: {{- include "common.tplvalues.render" (dict "value" .Values.singleuser.command "context" $) | nindent 4 }}
+      {{- else }}
+      cmd: jupyterhub-singleuser
+      {{- end }}
+      defaultUrl:
+      {{- if .Values.singleuser.profileList }}
+      profileList: {{- include "common.tplvalues.render" ( dict "value" .Values.singleuser.profileList "context" $) | nindent 4 }}
+      {{- end }}
+    cull:
+      enabled: true
+      users: false
+      removeNamedServers: false
+      timeout: 5400
+      every: 60
+      concurrency: 10
+      maxAge: 0
+  existingConfigmap: ""
+  existingSecret: ""
+  command: []
+  args: []
+  extraEnvVars: []
+  extraEnvVarsCM: ""
+  extraEnvVarsSecret: ""
+  containerPorts:
+    http: 8081
+  startupProbe:
+    enabled: true
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    failureThreshold: 30
+    timeoutSeconds: 3
+    successThreshold: 1
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    failureThreshold: 30
+    timeoutSeconds: 3
+    successThreshold: 1
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    failureThreshold: 30
+    timeoutSeconds: 3
+    successThreshold: 1
+  customStartupProbe: {}
+  customLivenessProbe: {}
+  customReadinessProbe: {}
+  resourcesPreset: "small"
+  resources: {}
+  containerSecurityContext:
+    enabled: true
+    seLinuxOptions: {}
+    runAsUser: 1001
+    runAsGroup: 1001
+    runAsNonRoot: true
+    privileged: false
+    readOnlyRootFilesystem: false
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ "ALL" ]
+    seccompProfile:
+      type: "RuntimeDefault"
+  podSecurityContext:
+    enabled: true
+    fsGroupChangePolicy: Always
+    sysctls: []
+    supplementalGroups: []
+    fsGroup: 1001
+  lifecycleHooks: {}
+  automountServiceAccountToken: true
+  hostAliases: []
+  podLabels: {}
+  podAnnotations: {}
+  podAffinityPreset: ""
+  podAntiAffinityPreset: soft
+  nodeAffinityPreset:
+    type: ""
+    key: ""
+    values: []
+  affinity: {}
+  nodeSelector:
+    # Optional
+    yourtag: tagvalue
+  tolerations: []
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  schedulerName: ""
+  terminationGracePeriodSeconds: ""
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate: {}
+  extraVolumes: []
+  extraVolumeMounts: []
+  initContainers: []
+  sidecars: []
+  pdb:
+    create: true
+    minAvailable: ""
+    maxUnavailable: ""
+  serviceAccount:
+    create: false
+    name: "spark"
+    automountServiceAccountToken: true
+    annotations: {}
+  rbac:
+    create: true
+    rules: []
+  networkPolicy:
+    enabled: true
+    allowExternal: true
+    allowExternalEgress: true
+    allowInterspaceAccess: true
+    extraIngress: []
+    extraEgress: []
+    ingressNSMatchLabels: {}
+    ingressNSPodMatchLabels: {}
+  service:
+    type: NodePort
+    ports:
+      http: 8081
+    nodePorts:
+      http: ""
+    sessionAffinity: None
+    sessionAffinityConfig: {}
+    clusterIP: ""
+    loadBalancerIP: ""
+    loadBalancerSourceRanges: []
+    externalTrafficPolicy: Cluster
+    annotations: {}
+    extraPorts: []
+  metrics:
+    authenticatePrometheus: false
+    serviceMonitor:
+      enabled: false
+      namespace: ""
+      path: /hub/metrics
+      interval: 30s
+      scrapeTimeout: ""
+      labels: {}
+      selector: {}
+      relabelings: []
+      metricRelabelings: []
+      honorLabels: false
+      jobLabel: ""
+proxy:
+  image:
+    registry: docker.io
+    repository: bitnami/configurable-http-proxy
+    tag: 4.6.2-debian-12-r10
+    digest: ""
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+    debug: false
+  secretToken: ""
+  command: []
+  args: []
+  extraEnvVars: []
+  extraEnvVarsCM: ""
+  extraEnvVarsSecret: ""
+  containerPort:
+    api: 8001
+    metrics: 8002
+    http: 8000
+  startupProbe:
+    enabled: true
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    failureThreshold: 30
+    timeoutSeconds: 3
+    successThreshold: 1
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    failureThreshold: 30
+    timeoutSeconds: 3
+    successThreshold: 1
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    failureThreshold: 30
+    timeoutSeconds: 3
+    successThreshold: 1
+  customStartupProbe: {}
+  customLivenessProbe: {}
+  customReadinessProbe: {}
+  resourcesPreset: "nano"
+  resources: {}
+  containerSecurityContext:
+    enabled: true
+    seLinuxOptions: {}
+    runAsUser: 1001
+    runAsGroup: 1001
+    runAsNonRoot: true
+    privileged: false
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ "ALL" ]
+    seccompProfile:
+      type: "RuntimeDefault"
+  podSecurityContext:
+    enabled: true
+    fsGroupChangePolicy: Always
+    sysctls: []
+    supplementalGroups: []
+    fsGroup: 1001
+  lifecycleHooks: {}
+  automountServiceAccountToken: true
+  hostAliases: []
+  podLabels: {}
+  podAnnotations: {}
+  podAffinityPreset: ""
+  podAntiAffinityPreset: soft
+  nodeAffinityPreset:
+    type: ""
+    key: ""
+    values: []
+  affinity: {}
+  nodeSelector:
+    # Optional
+    yourtag: tagvalue
+  tolerations: []
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  schedulerName: ""
+  terminationGracePeriodSeconds: ""
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate: {}
+  extraVolumes: []
+  extraVolumeMounts: []
+  initContainers: []
+  sidecars: []
+  pdb:
+    create: true
+    minAvailable: ""
+    maxUnavailable: ""
+  serviceAccount:
+    create: false
+    name: "spark"
+    automountServiceAccountToken: true
+    annotations: {}
+  networkPolicy:
+    enabled: true
+    allowExternal: true
+    allowExternalEgress: true
+    allowInterspaceAccess: true
+    extraIngress: []
+    extraEgress: []
+    ingressNSMatchLabels: {}
+    ingressNSPodMatchLabels: {}
+  service:
+    api:
+      type: NodePort
+      ports:
+        http: 8001
+      nodePorts:
+        http: ""
+      sessionAffinity: None
+      sessionAffinityConfig: {}
+      clusterIP: ""
+      loadBalancerIP: ""
+      loadBalancerSourceRanges: []
+      externalTrafficPolicy: Cluster
+      annotations: {}
+      extraPorts: []
+    metrics:
+      type: NodePort
+      ports:
+        http: 8002
+      nodePorts:
+        http: ""
+      sessionAffinity: None
+      sessionAffinityConfig: {}
+      clusterIP: ""
+      loadBalancerIP: ""
+      loadBalancerSourceRanges: []
+      externalTrafficPolicy: Cluster
+      annotations: {}
+      extraPorts: []
+    public:
+      type: LoadBalancer
+      ports:
+        http: 80
+      nodePorts:
+        http: ""
+      sessionAffinity: None
+      sessionAffinityConfig: {}
+      clusterIP: ""
+      loadBalancerIP: ""
+      loadBalancerSourceRanges: []
+      externalTrafficPolicy: Cluster
+      annotations: {}
+      extraPorts: []
+  ingress:
+    enabled: true
+    apiVersion: ""
+    ingressClassName: ""
+    pathType: ImplementationSpecific
+    hostname: jupyterhub-instance.example.com
+    path: /
+    annotations: {}
+    tls: true
+    selfSigned: false
+    extraHosts: []
+    extraPaths: []
+    extraTls: []
+    secrets: []
+    extraRules: []
+  metrics:
+    serviceMonitor:
+      enabled: false
+      namespace: ""
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: ""
+      labels: {}
+      selector: {}
+      relabelings: []
+      metricRelabelings: []
+      honorLabels: false
+      jobLabel: ""
+imagePuller:
+  enabled: false
+  command: []
+  args: []
+  extraEnvVars: []
+  extraEnvVarsCM: ""
+  extraEnvVarsSecret: ""
+  customStartupProbe: {}
+  customLivenessProbe: {}
+  customReadinessProbe: {}
+  resourcesPreset: "nano"
+  resources: {}
+  containerSecurityContext:
+    enabled: true
+    seLinuxOptions: {}
+    runAsUser: 1001
+    runAsGroup: 1001
+    runAsNonRoot: true
+    privileged: false
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ "ALL" ]
+    seccompProfile:
+      type: "RuntimeDefault"
+  podSecurityContext:
+    enabled: true
+    fsGroupChangePolicy: Always
+    sysctls: []
+    supplementalGroups: []
+    fsGroup: 1001
+  lifecycleHooks: {}
+  hostAliases: []
+  podLabels: {}
+  podAnnotations: {}
+  podAffinityPreset: ""
+  podAntiAffinityPreset: soft
+  nodeAffinityPreset:
+    type: ""
+    key: ""
+    values: []
+  affinity: {}
+  nodeSelector:
+    # Optional
+    yourtag: tagvalue
+  tolerations: []
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  schedulerName: ""
+  terminationGracePeriodSeconds: ""
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate: {}
+  extraVolumes: []
+  extraVolumeMounts: []
+  initContainers: []
+  sidecars: []
+  serviceAccount:
+    create: false
+    name: "spark"
+    automountServiceAccountToken: true
+    annotations: {}
+  networkPolicy:
+    enabled: true
+    allowExternalEgress: true
+    extraIngress: []
+    extraEgress: []
+singleuser:
+  image:
+    registry: your.registry.example.com
+    repository: your-repository/jupyterhub-user/base
+    tag: v3
+    digest: ""
+    pullPolicy: Always
+    pullSecrets:
+    - your-repository-creds-here
+  notebookDir: /opt/bitnami/jupyterhub-singleuser
+  allowPrivilegeEscalation: true
+  automountServiceAccountToken: true
+  command: []
+  extraEnvVars: []
+  containerPorts:
+    http: 8888
+  resourcesPreset: "small"
+  resources: {}
+  containerSecurityContext:
+    enabled: true
+    seLinuxOptions: {}
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+    privileged: false
+    readOnlyRootFilesystem: false
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ "ALL" ]
+    seccompProfile:
+      type: "RuntimeDefault"
+  podSecurityContext:
+    enabled: true
+    fsGroupChangePolicy: Always
+    sysctls: []
+    supplementalGroups: []
+    fsGroup: 1000
+  podLabels: {}
+  podAnnotations: {}
+  nodeSelector:
+    # Optional
+    yourtag: tagvalue
+  tolerations:
+  # Optional
+  - key: "yourkey"
+    operator: "Equal"
+    value: "tagvalue"
+    effect: "NoSchedule"
+  priorityClassName: ""
+  lifecycleHooks: {}
+  extraVolumes:
+  - configMap:
+      defaultMode: 420
+      name: spark-config-jupyter
+    name: spark-conf
+  - name: nfs-volume # Optional
+    nfs:
+      path: /
+      server: <NFS SERVER ADDRESS>
+  extraVolumeMounts:
+  - mountPath: /mnt
+    name: nfs-volume # Optional
+  - mountPath: /opt/bitnami/miniforge/lib/python3.12/site-packages/pyspark/conf/spark-defaults.conf # Pyspark home
+    name: spark-conf
+    subPath: spark-defaults.conf
+  initContainers: []
+  sidecars: []
+  serviceAccount:
+    create: false
+    name: "spark"
+    automountServiceAccountToken: true
+    annotations: {}
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessModes:
+    - ReadWriteOnce
+    size: 20Gi
+  profileList: []
+  networkPolicy:
+    enabled: true
+    allowExternal: true
+    allowExternalEgress: true
+    allowInterspaceAccess: true
+    allowCloudMetadataAccess: false
+    extraIngress: ""
+    extraEgress: ""
+    ingressNSMatchLabels: {}
+    ingressNSPodMatchLabels: {}
+auxiliaryImage:
+  registry: docker.io
+  repository: bitnami/os-shell
+  tag: 12-debian-12-r32
+  digest: ""
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+postgresql:
+  enabled: true
+  auth:
+    username: bn_jupyterhub
+    password: ""
+    database: bitnami_jupyterhub
+    existingSecret: ""
+  architecture: standalone
+  service:
+    ports:
+      postgresql: 5432
+externalDatabase:
+  host: ""
+  port: 5432
+  user: postgres
+  database: jupyterhub
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: ""

@@ -1,0 +1,34 @@
+# Custom pod template for Spark driver and executor pods
+apiVersion: v1
+kind: Pod
+metadata:
+  annotations:
+    cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+  namespace: default
+spec:
+  containers:
+  - name: spark-container
+    image: your.registry.example.com/your-repository/spark:<version>
+    resources:
+      limits:
+        cpu: <CPU>
+        memory: <MEMORY>
+    volumeMounts:
+    - name: spark-local-dir-1
+      mountPath: /data
+      readOnly: false
+  tolerations:
+  - key: "yourkey"
+    operator: "Equal"
+    value: "tagvalue"
+    effect: "NoSchedule"
+  imagePullSecrets:
+  - name: <your-repository-creds-here>
+  volumes:
+  - name: spark-local-dir-1
+    hostPath:
+      path: /tmp
+  serviceAccountName: spark
+  serviceAccount: spark
+  nodeSelector:
+    yourkey: tagvalue

@@ -1,0 +1,30 @@
+# image name - your.registry.example.com/your-repository/jupyterhub:4.1.6-debian-12-r9
+FROM bitnami/jupyter-base-notebook:4.1.6-debian-12-r9
+ENV PATH="$PATH:/root/.local/bin"
+USER root
+
+WORKDIR /opt/bitnami/jupyterhub-singleuser
+
+RUN mkdir -p /var/lib/apt/lists/partial && apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y openjdk-17-jdk && \
+    apt install --no-install-recommends python3 python3-dev python3-venv python3-pip git curl ca-certificates sudo python-is-python3 make -y && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+COPY requirements.txt requirements.txt
+
+RUN  pip3 install --no-cache-dir -r requirements.txt
+
+RUN export SPARK_HOME=$(python3 -c "from pyspark import find_spark_home; print(find_spark_home._find_spark_home())") && \
+    # Add spark user and to set default password here. Add this command to set password -> echo 'spark:yourpassword' | chpasswd
+    useradd -m -s /bin/bash spark && \
+    mkdir -p $SPARK_HOME/conf && \
+    # Installaion of dependecies to connect spark to S3
+    curl -L https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.262/aws-java-sdk-bundle-1.12.262.jar -o $SPARK_HOME/jars/aws-java-sdk-bundle-1.12.262.jar && \
+    curl -L https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar -o $SPARK_HOME/jars/hadoop-aws-3.3.4.jar && \
+    # Installaion of dependecies to connect spark to GCS
+    curl -L https://storage.googleapis.com/hadoop-lib/gcs/gcs-connector-hadoop3-latest.jar -o $SPARK_HOME/jars/gcs-connector-hadoop3-latest.jar
+
+COPY your_package.py /opt/bitnami/miniforge/lib/python3.12/site-packages/your_package.py
+ENV JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64/"
+ENV SPARK_USER="spark"
+USER spark
